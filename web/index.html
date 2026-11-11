@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f2f3ed">
+    <title>옆에서 | Motion Horizon Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./simulator.css">
+    <script src="./simulator.js" defer></script>
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <a class="brand" href="./" aria-label="옆에서 Motion Horizon Lab">
+                <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="brand-name">옆에서</span>
+                <span class="brand-divider"></span>
+                <span class="brand-section">MOTION HORIZON LAB</span>
+            </a>
+            <div class="connection-state"><span class="state-light"></span>LOCAL SIMULATION</div>
+        </header>
+
+        <main>
+            <section class="intro" aria-labelledby="page-title">
+                <div>
+                    <p class="eyebrow">VISUAL WELLNESS / 01</p>
+                    <h1 id="page-title">움직임을 <span>가장자리에서</span> 읽다.</h1>
+                </div>
+                <p class="intro-note">AMBIENT HORIZON <span>·</span> REAL-TIME INPUT</p>
+            </section>
+
+            <div class="lab-layout">
+                <section class="preview-column" aria-label="앰비언트 지평선 시뮬레이션">
+                    <div class="preview-heading">
+                        <div class="preview-label"><span class="live-dot"></span>LIVE FIELD</div>
+                        <div class="preview-meta">AAOS <span>/</span> 16:9 <span>/</span> 60 FPS</div>
+                    </div>
+
+                    <div class="viewport" id="viewport">
+                        <canvas id="scene" aria-label="드래그하여 이동할 수 있는 지도 또는 미디어 배경" role="img"></canvas>
+                        <div class="map-topbar" id="mapTopbar">
+                            <span class="map-live-dot"></span>
+                            <span class="map-location">현재 위치</span>
+                            <span class="map-road-name">성수이로</span>
+                            <span class="map-distance">450 m</span>
+                        </div>
+                        <div class="map-tools" id="mapTools" aria-label="지도 조작">
+                            <button id="zoomIn" type="button" aria-label="지도 확대">+</button>
+                            <button id="zoomOut" type="button" aria-label="지도 축소">−</button>
+                            <button id="recenterMap" type="button" aria-label="지도 중앙 맞춤">◎</button>
+                        </div>
+                        <div class="map-instruction" id="mapInstruction">DRAG TO PAN <span>·</span> SCROLL TO ZOOM</div>
+                        <div class="media-player" id="mediaPlayer" hidden>
+                            <div class="media-track">
+                                <span class="media-art" aria-hidden="true"><i></i><i></i><i></i></span>
+                                <span class="media-copy"><b>Night Drive</b><small>Ambient Radio · 04:32</small></span>
+                                <button class="media-play" id="mediaPlay" type="button" aria-label="미디어 재생">▶</button>
+                            </div>
+                            <input id="mediaSeek" class="media-seek" type="range" min="0" max="100" value="38" aria-label="재생 위치">
+                            <div class="media-times"><span id="mediaElapsed">01:42</span><span>04:32</span></div>
+                        </div>
+                        <canvas id="horizonLayer" aria-hidden="true"></canvas>
+                        <div class="viewport-topline" aria-hidden="true">
+                            <span>FORWARD VIEW</span>
+                            <span class="viewport-coordinate">37°34' N&nbsp; 126°59' E</span>
+                        </div>
+                        <div class="viewport-center" aria-hidden="true"><span></span></div>
+                        <div class="viewport-bottomline" aria-hidden="true">
+                            <span>EDGE SIGNAL <b id="edgeWidthReadout">5 PX</b></span>
+                            <span class="viewport-mode" id="viewportMode">MANUAL INPUT</span>
+                        </div>
+                        <div class="edge-marker edge-marker-left" aria-hidden="true"></div>
+                        <div class="edge-marker edge-marker-right" aria-hidden="true"></div>
+                    </div>
+
+                    <div class="readouts" aria-label="실시간 시뮬레이션 값">
+                        <div class="readout">
+                            <span class="readout-label">STEERING</span>
+                            <strong id="steeringOutput">0°</strong>
+                            <span class="readout-caption">INPUT ANGLE</span>
+                        </div>
+                        <div class="readout">
+                            <span class="readout-label">HORIZON TILT</span>
+                            <strong id="tiltOutput">0.00°</strong>
+                            <span class="readout-caption">ROLL · ±15° MAX</span>
+                        </div>
+                        <div class="readout">
+                            <span class="readout-label">BRAKE</span>
+                            <strong><span id="brakeOutput">0</span><small>%</small></strong>
+                            <span class="readout-caption">PEDAL INPUT</span>
+                        </div>
+                        <div class="readout">
+                            <span class="readout-label">FRAME RATE</span>
+                            <strong><span id="fpsOutput">--</span><small>FPS</small></strong>
+                            <span class="readout-caption">REQUESTANIMATIONFRAME</span>
+                        </div>
+                    </div>
+                </section>
+
+                <aside class="control-panel" aria-labelledby="controls-title">
+                    <div class="panel-heading">
+                        <div>
+                            <p class="eyebrow">INPUT DECK / 01</p>
+                            <h2 id="controls-title">주행 입력</h2>
+                        </div>
+                        <span class="panel-index">01—02</span>
+                    </div>
+
+                    <div class="mode-switch" role="group" aria-label="주행 입력 모드">
+                        <button class="mode-button is-active" id="manualMode" type="button" aria-pressed="true">직접 조향</button>
+                        <button class="mode-button" id="autoMode" type="button" aria-pressed="false">S자 자동</button>
+                    </div>
+
+                    <div class="wheel-section">
+                        <div class="control-label-row">
+                            <label for="steeringRange">조향각</label>
+                            <output class="angle-value" id="rangeValue" for="steeringRange">0°</output>
+                        </div>
+
+                        <div class="wheel-wrap">
+                            <div class="wheel-control" id="wheelControl" role="slider" tabindex="0"
+                                 aria-label="조향 휠, 화살표 키로 조절" aria-valuemin="-540" aria-valuemax="540" aria-valuenow="0">
+                                <div class="wheel-rim">
+                                    <span class="wheel-spoke wheel-spoke-top"></span>
+                                    <span class="wheel-spoke wheel-spoke-left"></span>
+                                    <span class="wheel-spoke wheel-spoke-right"></span>
+                                    <span class="wheel-hub"><i></i><b>Y</b></span>
+                                </div>
+                            </div>
+                            <span class="wheel-tick wheel-tick-left" aria-hidden="true">−540°</span>
+                            <span class="wheel-tick wheel-tick-right" aria-hidden="true">+540°</span>
+                        </div>
+
+                        <input id="steeringRange" class="angle-range" type="range" min="-540" max="540" value="0" step="1" aria-label="조향각">
+                        <div class="range-scale" aria-hidden="true"><span>LEFT</span><span>CENTER</span><span>RIGHT</span></div>
+                    </div>
+
+                    <div class="brake-section">
+                        <div class="control-label-row">
+                            <label for="brakeRange">브레이크 강도</label>
+                            <output class="angle-value" id="brakeRangeValue" for="brakeRange">0%</output>
+                        </div>
+                        <input id="brakeRange" class="angle-range brake-range" type="range"
+                               min="0" max="100" value="0" step="1" aria-label="브레이크 강도">
+                        <div class="brake-scale" aria-hidden="true">
+                            <span class="pedal-state" id="pedalState"><i></i> RELEASED</span>
+                            <span>FULL BRAKE</span>
+                        </div>
+                    </div>
+
+                    <div class="panel-rule"></div>
+
+                    <div class="display-mode-section">
+                        <div class="control-label-row"><span>배경 앱</span><span class="mode-hint">MULTI-APP</span></div>
+                        <div class="mode-switch display-mode-switch" role="group" aria-label="가상 앱 배경">
+                            <button class="mode-button is-active" id="navigationMode" type="button" aria-pressed="true">내비게이션</button>
+                            <button class="mode-button" id="mediaMode" type="button" aria-pressed="false">미디어</button>
+                        </div>
+                    </div>
+
+                    <div class="road-row">
+                        <div>
+                            <span class="readout-label">ROAD SURFACE</span>
+                            <strong>요철 잔진동</strong>
+                        </div>
+                        <output class="angle-value" id="bumpyValue" for="bumpyRange">0%</output>
+                    </div>
+                    <input id="bumpyRange" class="angle-range bumpy-range" type="range" min="0" max="100" value="0" step="1" aria-label="요철 잔진동 강도">
+                    <div class="brake-scale" aria-hidden="true"><span>SMOOTH</span><span>ROUGH</span></div>
+
+                    <div class="control-label-row g-force-label-row">
+                        <label for="gForceRange">종가속 G-FORCE</label>
+                        <output class="angle-value" id="gForceValue" for="gForceRange">0.0 G</output>
+                    </div>
+                    <input id="gForceRange" class="angle-range g-force-range" type="range" min="-100" max="100" value="0" step="1" aria-label="종가속 시뮬레이션">
+                    <div class="brake-scale" aria-hidden="true"><span>DECEL −1.0 G</span><span>ACCEL +1.0 G</span></div>
+
+                    <div class="scenario-actions">
+                        <button class="scenario-button emergency-button" id="emergencyButton" type="button">
+                            <span class="scenario-icon" aria-hidden="true">!</span>
+                            <span>급정거 시뮬레이션</span>
+                        </button>
+                        <button class="scenario-button curve-button" id="sCurveButton" type="button">
+                            <span class="scenario-icon" aria-hidden="true">∿</span>
+                            <span>S자 코너링 주행</span>
+                        </button>
+                    </div>
+
+                    <button class="reset-button" id="resetButton" type="button">
+                        <span class="reset-glyph" aria-hidden="true">↺</span>
+                        <span>초기 상태로 복귀</span>
+                        <kbd>R</kbd>
+                    </button>
+
+                    <p class="panel-footnote">시뮬레이션 전용 <span>·</span> 차량 데이터 미연결</p>
+                </aside>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <span>YEOP-EOSEO / AMBIENT MOTION SYSTEM</span>
+            <span>NEUTRAL STATE <i></i> READY</span>
+        </footer>
+    </div>
+</body>
+</html>

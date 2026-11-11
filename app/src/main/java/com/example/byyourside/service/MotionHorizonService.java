@@ -3,13 +3,16 @@ package com.example.byyourside.service;
 import android.app.Service;
 import android.content.Intent;
 import android.graphics.PixelFormat;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.WindowManager;
 
 import ai.pleos.playground.vehicle.Vehicle;
+import ai.pleos.playground.vehicle.listener.BrakePedalStatusListener;
 import ai.pleos.playground.vehicle.listener.SteeringWheelAngleListener;
 
 import com.example.byyourside.ui.MotionHorizonView;
@@ -17,11 +20,15 @@ import com.example.byyourside.ui.MotionHorizonView;
 public class MotionHorizonService extends Service {
     private static final String TAG = "MotionHorizonService";
 
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WindowManager windowManager;
     private MotionHorizonView horizonView;
     private Vehicle vehicle;
     private SteeringWheelAngleListener steeringWheelAngleListener;
-    private boolean listenerRegistered;
+    private BrakePedalStatusListener brakePedalStatusListener;
+    private boolean steeringListenerRegistered;
+    private boolean brakeListenerRegistered;
+    private volatile boolean acceptingVehicleCallbacks;
 
     @Override
     public void onCreate() {
@@ -66,12 +73,13 @@ public class MotionHorizonService extends Service {
         try {
             vehicle = new Vehicle(getApplicationContext());
             vehicle.initialize();
+            acceptingVehicleCallbacks = true;
 
             steeringWheelAngleListener = new SteeringWheelAngleListener() {
                 @Override
                 public void onSteeringWheelAngleUpdated(Float angle) {
-                    if (angle != null && horizonView != null) {
-                        horizonView.setSteeringAngle(angle);
+                    if (angle != null) {
+                        dispatchSteeringAngle(angle);
                     }
                 }
 
@@ -81,10 +89,50 @@ public class MotionHorizonService extends Service {
                 }
             };
             vehicle.getSteeringWheel().registerSteeringWheelAngle(steeringWheelAngleListener);
-            listenerRegistered = true;
+            steeringListenerRegistered = true;
+
+            brakePedalStatusListener = new BrakePedalStatusListener() {
+                @Override
+                public void onBrakePedalStatusUpdated(Boolean isPressed) {
+                    if (isPressed != null) {
+                        dispatchBrakeStatus(isPressed);
+                    }
+                }
+
+                @Override
+                public void onFailed(Exception exception) {
+                    Log.w(TAG, "Unable to read the brake pedal status", exception);
+                }
+            };
+            vehicle.getBrake().registerBrakePedalStatus(brakePedalStatusListener);
+            brakeListenerRegistered = true;
         } catch (RuntimeException exception) {
             Log.w(TAG, "Vehicle SDK is unavailable; showing a neutral horizon", exception);
         }
+    }
+
+    private void dispatchSteeringAngle(float angle) {
+        MotionHorizonView targetView = horizonView;
+        if (!acceptingVehicleCallbacks || targetView == null) {
+            return;
+        }
+        mainHandler.post(() -> {
+            if (acceptingVehicleCallbacks && horizonView == targetView) {
+                targetView.setSteeringAngle(angle);
+            }
+        });
+    }
+
+    private void dispatchBrakeStatus(boolean isPressed) {
+        MotionHorizonView targetView = horizonView;
+        if (!acceptingVehicleCallbacks || targetView == null) {
+            return;
+        }
+        mainHandler.post(() -> {
+            if (acceptingVehicleCallbacks && horizonView == targetView) {
+                targetView.setBrakeStatus(isPressed);
+            }
+        });
     }
 
     @Override
@@ -94,13 +142,22 @@ public class MotionHorizonService extends Service {
 
     @Override
     public void onDestroy() {
+        acceptingVehicleCallbacks = false;
+        mainHandler.removeCallbacksAndMessages(null);
         if (vehicle != null) {
-            if (listenerRegistered && steeringWheelAngleListener != null) {
+            if (steeringListenerRegistered && steeringWheelAngleListener != null) {
                 try {
                     vehicle.getSteeringWheel().unregisterSteeringWheelAngle(
                             steeringWheelAngleListener);
                 } catch (RuntimeException exception) {
                     Log.w(TAG, "Unable to unregister the steering angle listener", exception);
+                }
+            }
+            if (brakeListenerRegistered && brakePedalStatusListener != null) {
+                try {
+                    vehicle.getBrake().unregisterBrakePedalStatus(brakePedalStatusListener);
+                } catch (RuntimeException exception) {
+                    Log.w(TAG, "Unable to unregister the brake status listener", exception);
                 }
             }
             vehicle.release();
