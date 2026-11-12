@@ -349,6 +349,8 @@
     }
 
     function drawHorizon(context, width, height, tiltDegrees, pitchShift, brakePulse) {
+        context.clearRect(0, 0, width, height);
+
         const middleY = height / 2 + pitchShift;
         const offset = Math.tan(tiltDegrees * Math.PI / 180) * width / 2;
         const leftY = middleY + offset;
@@ -364,18 +366,16 @@
             context.beginPath();
             context.moveTo(0, leftY);
             context.lineTo(width, rightY);
-            context.strokeStyle = `rgba(123, 245, 204, ${0.14 + brakePulse * 0.14})`;
-            context.lineWidth = edgeWidth + 10;
-            context.shadowColor = '#7bf5cc';
-            context.shadowBlur = 20 + brakePulse * 9;
-            context.stroke();
-            context.strokeStyle = `rgba(123, 245, 204, ${0.3 + brakePulse * 0.22})`;
-            context.lineWidth = edgeWidth + 5;
-            context.shadowBlur = 12 + brakePulse * 7;
-            context.stroke();
+            if (brakePulse > 0) {
+                context.strokeStyle = `rgba(123, 245, 204, ${brakePulse * 0.24})`;
+                context.lineWidth = edgeWidth + 4;
+                context.shadowColor = '#7bf5cc';
+                context.shadowBlur = brakePulse * 12;
+                context.stroke();
+            }
             context.strokeStyle = `rgba(186, 255, 226, ${0.75 + brakePulse * 0.2})`;
             context.lineWidth = edgeWidth;
-            context.shadowBlur = 7 + brakePulse * 8;
+            context.shadowBlur = 0;
             context.stroke();
             context.restore();
         }
