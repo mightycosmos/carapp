@@ -7,7 +7,7 @@
     const LOW_PASS_ALPHA = 0.12;
     const BRAKE_PULSE_DURATION_MS = 420;
     const BUMP_AMPLITUDE_DEGREES = 18;
-    const BUMP_FREQUENCY_HZ = 17;
+    const BUMP_FREQUENCY_HZ = 2;
     const AUTO_AMPLITUDE = 460;
     const AUTO_FREQUENCY = 0.82;
 
@@ -60,7 +60,6 @@
         brakePulseStart: 0,
         brakePulseLevel: 0,
         bumpyIntensity: 0,
-        gForce: 0,
         backgroundMode: 'navigation',
         mapZoom: 1,
         mapPanX: 0,
@@ -76,6 +75,7 @@
         fps: 0,
         previousPointerAngle: null,
     };
+    let emergencyTimeoutId = null;
 
     function clamp(value, minimum, maximum) {
         return Math.max(minimum, Math.min(maximum, value));
@@ -113,6 +113,13 @@
         mapInstruction.hidden = !isNavigation;
     }
 
+    function clearEmergencyTimeout() {
+        if (emergencyTimeoutId !== null) {
+            window.clearTimeout(emergencyTimeoutId);
+            emergencyTimeoutId = null;
+        }
+    }
+
     function setSteeringAngle(value, source = 'manual') {
         const angle = clamp(Number(value) || 0, -MAX_STEERING_ANGLE, MAX_STEERING_ANGLE);
         if (source === 'manual' && state.mode !== 'manual') setMode('manual');
@@ -125,6 +132,7 @@
     }
 
     function resetSimulation() {
+        clearEmergencyTimeout();
         setMode('manual');
         setBackgroundMode('navigation');
         setSteeringAngle(0);
@@ -137,7 +145,18 @@
         state.displayedTilt = 0;
         state.displayedBrakeIntensity = 0;
         state.displayedGForce = 0;
+        state.brakePulseStart = 0;
+        state.brakePulseLevel = 0;
         state.mapDrag = null;
+        state.mediaPlaying = false;
+        state.mediaPosition = 102;
+        state.lastFrameTime = 0;
+        state.frameCount = 0;
+        state.fps = 0;
+        mediaPlayButton.textContent = '▶';
+        mediaPlayButton.classList.remove('is-playing');
+        mediaPlayButton.setAttribute('aria-label', '미디어 재생');
+        updateMediaReadout();
     }
 
     function resizeCanvas(canvas, context) {
@@ -416,8 +435,7 @@
     function getBrakePulse(time) {
         const gForcePulse = Math.abs(state.displayedGForce);
         if (state.brakeIntensity > 0) {
-            return Math.max(gForcePulse,
-                state.brakeIntensity * (0.65 + 0.35 * Math.sin(time / 90)));
+            return Math.max(gForcePulse, state.brakeIntensity);
         }
         if (!state.brakePulseStart) return gForcePulse;
         const elapsed = time - state.brakePulseStart;
@@ -426,8 +444,7 @@
             return gForcePulse;
         }
         const remaining = 1 - elapsed / BRAKE_PULSE_DURATION_MS;
-        return Math.max(gForcePulse,
-            state.brakePulseLevel * remaining * (0.5 + 0.5 * Math.sin(time / 90)));
+        return Math.max(gForcePulse, state.brakePulseLevel * remaining);
     }
 
     function updateMediaReadout() {
@@ -507,9 +524,15 @@
     }
 
     range.addEventListener('input', () => setSteeringAngle(range.value));
-    brakeRange.addEventListener('input', () => setBrakeIntensity(brakeRange.value));
+    brakeRange.addEventListener('input', () => {
+        clearEmergencyTimeout();
+        setBrakeIntensity(brakeRange.value);
+    });
     bumpyRange.addEventListener('input', () => setBumpyIntensity(bumpyRange.value));
-    gForceRange.addEventListener('input', () => setGForce(gForceRange.value));
+    gForceRange.addEventListener('input', () => {
+        clearEmergencyTimeout();
+        setGForce(gForceRange.value);
+    });
     manualButton.addEventListener('click', () => setMode('manual'));
     autoButton.addEventListener('click', () => setMode('auto'));
     sCurveButton.addEventListener('click', () => setMode('auto'));
@@ -517,9 +540,11 @@
     mediaButton.addEventListener('click', () => setBackgroundMode('media'));
     resetButton.addEventListener('click', resetSimulation);
     emergencyButton.addEventListener('click', () => {
+        clearEmergencyTimeout();
         setBrakeIntensity(100);
         setGForce(-80);
-        window.setTimeout(() => {
+        emergencyTimeoutId = window.setTimeout(() => {
+            emergencyTimeoutId = null;
             if (state.brakeIntensity === 1) {
                 setBrakeIntensity(0);
                 setGForce(0);

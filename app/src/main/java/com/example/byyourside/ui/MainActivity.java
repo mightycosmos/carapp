@@ -1,7 +1,11 @@
 package com.example.byyourside.ui;
 
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -17,7 +21,16 @@ import com.example.byyourside.service.MotionHorizonService;
 public class MainActivity extends AppCompatActivity {
     private TextView statusView;
     private Button actionButton;
-    private boolean serviceRequested = true;
+    private boolean serviceRequested;
+    private boolean statusReceiverRegistered;
+    private final BroadcastReceiver sessionStateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            serviceRequested = intent.getBooleanExtra(
+                    MotionHorizonService.EXTRA_SESSION_RUNNING, false);
+            updateOverlayState();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,14 +68,35 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        serviceRequested = MotionHorizonService.isSessionRunning();
+        registerSessionStateReceiver();
         updateOverlayState();
-        if (serviceRequested && Settings.canDrawOverlays(this)) {
-            startService(new Intent(this, MotionHorizonService.class));
+    }
+
+    @Override
+    protected void onPause() {
+        if (statusReceiverRegistered) {
+            unregisterReceiver(sessionStateReceiver);
+            statusReceiverRegistered = false;
         }
+        super.onPause();
+    }
+
+    private void registerSessionStateReceiver() {
+        if (statusReceiverRegistered) {
+            return;
+        }
+        IntentFilter filter = new IntentFilter(MotionHorizonService.ACTION_SESSION_STATE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(sessionStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(sessionStateReceiver, filter);
+        }
+        statusReceiverRegistered = true;
     }
 
     private void onActionButtonClicked() {
-        if (!Settings.canDrawOverlays(this)) {
+        if (!serviceRequested && !Settings.canDrawOverlays(this)) {
             Intent permissionIntent = new Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:" + getPackageName()));
@@ -82,14 +116,14 @@ public class MainActivity extends AppCompatActivity {
     private void updateOverlayState() {
         boolean permissionGranted = Settings.canDrawOverlays(this);
         if (!permissionGranted) {
-            statusView.setText("오버레이 권한이 필요합니다.");
+            statusView.setText("오버레이 권한이 필요합니다. 권한을 허용한 뒤 세션을 시작하세요.");
             actionButton.setText("권한 허용");
         } else if (serviceRequested) {
-            statusView.setText("주행 정보를 가장자리 지평선에 표시합니다.");
-            actionButton.setText("오버레이 중지");
+            statusView.setText("활성 세션에서 수신된 차량 입력을 가장자리에 표시합니다.");
+            actionButton.setText("세션 종료");
         } else {
-            statusView.setText("오버레이가 중지되었습니다.");
-            actionButton.setText("오버레이 시작");
+            statusView.setText("세션이 종료되었습니다. 효과는 멀미 완화를 보장하지 않습니다.");
+            actionButton.setText("세션 시작");
         }
     }
 }

@@ -6,6 +6,7 @@ import android.graphics.PixelFormat;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.Gravity;
@@ -19,8 +20,35 @@ import com.example.byyourside.ui.MotionHorizonView;
 
 public class MotionHorizonService extends Service {
     private static final String TAG = "MotionHorizonService";
+    private static final long DATA_STALE_AFTER_MS = 3_000L;
+    private static final long DATA_CHECK_INTERVAL_MS = 1_000L;
+    public static final String ACTION_SESSION_STATE =
+            "com.example.byyourside.action.SESSION_STATE";
+    public static final String EXTRA_SESSION_RUNNING = "session_running";
+
+    private static volatile boolean sessionRunning;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable staleDataCheck = new Runnable() {
+        @Override
+        public void run() {
+            if (!acceptingVehicleCallbacks || horizonView == null) {
+                return;
+            }
+
+            long now = SystemClock.elapsedRealtime();
+            if (lastSteeringUpdateMs != 0L
+                    && now - lastSteeringUpdateMs > DATA_STALE_AFTER_MS) {
+                lastSteeringUpdateMs = 0L;
+                horizonView.markSteeringStale();
+            }
+            if (lastBrakeUpdateMs != 0L && now - lastBrakeUpdateMs > DATA_STALE_AFTER_MS) {
+                lastBrakeUpdateMs = 0L;
+                horizonView.markBrakeStale();
+            }
+            mainHandler.postDelayed(this, DATA_CHECK_INTERVAL_MS);
+        }
+    };
     private WindowManager windowManager;
     private MotionHorizonView horizonView;
     private Vehicle vehicle;
@@ -29,6 +57,8 @@ public class MotionHorizonService extends Service {
     private boolean steeringListenerRegistered;
     private boolean brakeListenerRegistered;
     private volatile boolean acceptingVehicleCallbacks;
+    private volatile long lastSteeringUpdateMs;
+    private volatile long lastBrakeUpdateMs;
 
     @Override
     public void onCreate() {
@@ -36,16 +66,13 @@ public class MotionHorizonService extends Service {
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         horizonView = new MotionHorizonView(this);
 
-        if (Settings.canDrawOverlays(this)) {
-            if (!addHorizonOverlay()) {
-                stopSelf();
-                return;
-            }
-        } else {
+        if (!Settings.canDrawOverlays(this) || !addHorizonOverlay()) {
             stopSelf();
             return;
         }
 
+        sessionRunning = true;
+        notifySessionState(true);
         connectVehicleSdk();
     }
 
@@ -74,18 +101,20 @@ public class MotionHorizonService extends Service {
             vehicle = new Vehicle(getApplicationContext());
             vehicle.initialize();
             acceptingVehicleCallbacks = true;
+            mainHandler.postDelayed(staleDataCheck, DATA_CHECK_INTERVAL_MS);
 
             steeringWheelAngleListener = new SteeringWheelAngleListener() {
                 @Override
                 public void onSteeringWheelAngleUpdated(Float angle) {
-                    if (angle != null) {
+                    if (angle != null && Float.isFinite(angle)) {
+                        lastSteeringUpdateMs = SystemClock.elapsedRealtime();
                         dispatchSteeringAngle(angle);
                     }
                 }
 
                 @Override
                 public void onFailed(Exception exception) {
-                    Log.w(TAG, "Unable to read the steering wheel angle", exception);
+                    handleVehicleFailure("Unable to read the steering wheel angle", exception);
                 }
             };
             vehicle.getSteeringWheel().registerSteeringWheelAngle(steeringWheelAngleListener);
@@ -95,20 +124,29 @@ public class MotionHorizonService extends Service {
                 @Override
                 public void onBrakePedalStatusUpdated(Boolean isPressed) {
                     if (isPressed != null) {
+                        lastBrakeUpdateMs = SystemClock.elapsedRealtime();
                         dispatchBrakeStatus(isPressed);
                     }
                 }
 
                 @Override
                 public void onFailed(Exception exception) {
-                    Log.w(TAG, "Unable to read the brake pedal status", exception);
+                    handleVehicleFailure("Unable to read the brake pedal status", exception);
                 }
             };
             vehicle.getBrake().registerBrakePedalStatus(brakePedalStatusListener);
             brakeListenerRegistered = true;
         } catch (RuntimeException exception) {
-            Log.w(TAG, "Vehicle SDK is unavailable; showing a neutral horizon", exception);
+            Log.e(TAG, "Unable to start the Vehicle SDK session", exception);
+            acceptingVehicleCallbacks = false;
+            stopSelf();
         }
+    }
+
+    private void handleVehicleFailure(String message, Exception exception) {
+        Log.e(TAG, message + "; ending the session", exception);
+        acceptingVehicleCallbacks = false;
+        stopSelf();
     }
 
     private void dispatchSteeringAngle(float angle) {
@@ -160,15 +198,36 @@ public class MotionHorizonService extends Service {
                     Log.w(TAG, "Unable to unregister the brake status listener", exception);
                 }
             }
-            vehicle.release();
+            try {
+                vehicle.release();
+            } catch (RuntimeException exception) {
+                Log.w(TAG, "Unable to release the Vehicle SDK", exception);
+            }
             vehicle = null;
         }
 
         if (windowManager != null && horizonView != null && horizonView.isAttachedToWindow()) {
-            windowManager.removeView(horizonView);
+            try {
+                windowManager.removeView(horizonView);
+            } catch (IllegalArgumentException | SecurityException exception) {
+                Log.w(TAG, "Unable to remove the motion horizon overlay", exception);
+            }
         }
         horizonView = null;
+        sessionRunning = false;
+        notifySessionState(false);
         super.onDestroy();
+    }
+
+    private void notifySessionState(boolean isRunning) {
+        Intent stateIntent = new Intent(ACTION_SESSION_STATE)
+                .setPackage(getPackageName())
+                .putExtra(EXTRA_SESSION_RUNNING, isRunning);
+        sendBroadcast(stateIntent);
+    }
+
+    public static boolean isSessionRunning() {
+        return sessionRunning;
     }
 
     @Override
